@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-var timeFormats = []string{"02 Jan", "2 Jan, 2006"}
+var timeFormats = []string{"2 Jan", "02 Jan", "2 Jan, 2006"}
 
 func ParseTime(input string) (time.Time, error) {
 	for _, format := range timeFormats {
