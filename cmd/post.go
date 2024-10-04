@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/development-and-dinosaurs/paleoplay/internal"
@@ -19,15 +18,17 @@ for each one with the name of the game and the date of the screenshot.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		user := cmd.Flag("user").Value.String()
 		tinifyApiKey := cmd.Flag("tinify-api-key").Value.String()
-		fmt.Println("Creating posts")
-		internal.InitSteam()
+		state := internal.ReadState()
+		internal.InitSteam(state)
 		screenshots := internal.PullPublicScreenshots(user)
+		newState := internal.MapScreenshotIDs(screenshots)
 		for _, screenshot := range screenshots {
 			internal.InitTinify(tinifyApiKey)
 			image, _ := internal.Tinify(screenshot.URL)
 			os.WriteFile("static/images/posts/"+screenshot.FileName(), image, 0777)
 			internal.Post(screenshot)
 		}
+		internal.WriteState(newState)
 		internal.CloseSteam()
 	},
 }

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,8 +17,10 @@ import (
 var pw *playwright.Playwright
 var browser playwright.Browser
 var page playwright.Page
+var processedScreenshots []string
 
-func InitSteam() {
+func InitSteam(state []string) {
+	processedScreenshots = state
 	pw, err := playwright.Run()
 	if err != nil {
 		log.Fatalf("could not start playwright: %v", err)
@@ -33,8 +36,9 @@ func InitSteam() {
 }
 
 func CloseSteam() {
-	browser.Close()
-	pw.Stop()
+	if err := browser.Close(); err != nil {
+		log.Fatalf("could not close browser: %v", err)
+	}
 }
 
 func PullPublicScreenshots(user string) (screenshots []Screenshot) {
@@ -52,8 +56,11 @@ func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 		hrefs = append(hrefs, href)
 	}
 	for _, href := range hrefs {
-		screenshot := PullScreenshot(href)
-		screenshots = append(screenshots, screenshot)
+		if !slices.Contains(processedScreenshots, href) {
+			screenshot := PullScreenshot(href)
+			fmt.Println(screenshot.Date.Format("2006 Jan 02") + " - " + screenshot.Game)
+			screenshots = append(screenshots, screenshot)
+		}
 	}
 	return
 }
@@ -86,7 +93,7 @@ func PullScreenshot(url string) (screenshot Screenshot) {
 	re := regexp.MustCompile(".*/app/(\\d*).*")
 	appId := re.FindStringSubmatch(storeUrl)[1]
 	details := getGameDetails(appId)
-	return Screenshot{Game: details.Name, URL: imageUrl, Date: actualDate, Genres: details.Genres}
+	return Screenshot{ID: url, Game: details.Name, URL: imageUrl, Date: actualDate, Genres: details.Genres}
 }
 
 func getGameDetails(appId string) GameDetails {
@@ -129,6 +136,7 @@ type Genre struct {
 }
 
 type Screenshot struct {
+	ID     string
 	Game   string
 	URL    string
 	Date   time.Time
@@ -139,4 +147,11 @@ func (s *Screenshot) FileName() string {
 	game := strings.ToLower(strings.ReplaceAll(s.Game, " ", "-"))
 	date := s.Date.Format("2006-01-02")
 	return fmt.Sprintf("%s-%s.webp", date, game)
+}
+
+func MapScreenshotIDs(screenshots []Screenshot) (screenshotURLs []string) {
+	for _, s := range screenshots {
+		screenshotURLs = append(screenshotURLs, s.ID)
+	}
+	return
 }
