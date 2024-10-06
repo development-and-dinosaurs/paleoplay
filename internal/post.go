@@ -8,7 +8,7 @@ import (
 
 var postTemplate = `---
 title: %[1]s - %[2]s
-date: %[1]s
+dates: %[1]s
 image: images/posts/%[3]s
 games: %[4]s
 genres:
