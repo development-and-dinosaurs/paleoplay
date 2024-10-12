@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/playwright-community/playwright-go"
@@ -55,13 +56,15 @@ func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 		href, _ := entry.GetAttribute("href")
 		hrefs = append(hrefs, href)
 	}
+	var wg sync.WaitGroup
 	for _, href := range hrefs {
 		if !slices.Contains(processedScreenshots, href) {
 			screenshot := PullScreenshot(href)
-			fmt.Println(screenshot.Date.Format("2006 Jan 02") + " - " + screenshot.Game)
+			fmt.Println("Processing: " + screenshot.Date.Format("2006 Jan 02") + " - " + screenshot.Game)
 			screenshots = append(screenshots, screenshot)
 		}
 	}
+	wg.Wait()
 	return
 }
 
@@ -143,15 +146,24 @@ type Screenshot struct {
 	Genres []string
 }
 
-func (s *Screenshot) FileName() string {
+var regex = regexp.MustCompile(`[\\\/:\*\?|"<>]*`)
+
+func (s *Screenshot) FileName(number int) string {
 	game := strings.ToLower(strings.ReplaceAll(s.Game, " ", "-"))
 	date := s.Date.Format("2006-01-02")
-	return fmt.Sprintf("%s-%s.webp", date, game)
+	return fmt.Sprintf("%s-%s-%d.webp", date, regex.ReplaceAllString(game, ""), number)
 }
 
-func MapScreenshotIDs(screenshots []Screenshot) (screenshotURLs []string) {
+func MapScreenshotIDs(screenshots []Screenshot) (screenshotIDs []string) {
 	for _, s := range screenshots {
-		screenshotURLs = append(screenshotURLs, s.ID)
+		screenshotIDs = append(screenshotIDs, s.ID)
+	}
+	return
+}
+
+func MapScreenshotURLs(screenshots []Screenshot) (screenshotURLs []string) {
+	for _, s := range screenshots {
+		screenshotURLs = append(screenshotURLs, s.URL)
 	}
 	return
 }

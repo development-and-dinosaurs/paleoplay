@@ -2,7 +2,6 @@ package internal
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,10 +14,7 @@ func InitTinify(tinifyApiKey string) {
 	apiKey = tinifyApiKey
 }
 
-func Tinify(source string) (result []byte, err error) {
-	if apiKey == "" {
-		return nil, errors.New("Tinify not initialised. Call `InitTinify` first.")
-	}
+func Tinify(source string) (result []byte) {
 	compressed := compress(source)
 	result = convert(compressed)
 	return

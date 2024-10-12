@@ -1,2 +1,2 @@
 # paleoplay
-A CLI tool for generating gamelog entries
+A CLI tool for generating entries for your gamelog. 
