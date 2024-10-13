@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -68,6 +69,9 @@ func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 		}
 	}
 	wg.Wait()
+	sort.Slice(screenshots, func(i, j int) bool {
+		return screenshots[i].ID < screenshots[j].ID
+	})
 	return
 }
 
