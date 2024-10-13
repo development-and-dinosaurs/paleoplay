@@ -17,7 +17,6 @@ import (
 
 var pw *playwright.Playwright
 var browser playwright.Browser
-var page playwright.Page
 var processedScreenshots []string
 
 func InitSteam(state []string) {
@@ -30,10 +29,6 @@ func InitSteam(state []string) {
 	if err != nil {
 		log.Fatalf("could not launch browser: %v", err)
 	}
-	page, err = browser.NewPage()
-	if err != nil {
-		log.Fatalf("could not create page: %v", err)
-	}
 }
 
 func CloseSteam() {
@@ -43,6 +38,10 @@ func CloseSteam() {
 }
 
 func PullPublicScreenshots(user string) (screenshots []Screenshot) {
+	page, err := browser.NewPage()
+	if err != nil {
+		log.Fatalf("could not create page: %v", err)
+	}
 	url := fmt.Sprintf("https://steamcommunity.com/id/%s/screenshots/", user)
 	if _, err := page.Goto(url); err != nil {
 		log.Fatalf("could not goto: %v", err)
@@ -59,9 +58,13 @@ func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 	var wg sync.WaitGroup
 	for _, href := range hrefs {
 		if !slices.Contains(processedScreenshots, href) {
-			screenshot := PullScreenshot(href)
-			fmt.Println("Processing: " + screenshot.Date.Format("2006 Jan 02") + " - " + screenshot.Game)
-			screenshots = append(screenshots, screenshot)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				screenshot := PullScreenshot(href)
+				fmt.Println("Processing: " + screenshot.Date.Format("2006 Jan 02") + " - " + screenshot.Game)
+				screenshots = append(screenshots, screenshot)
+			}()
 		}
 	}
 	wg.Wait()
@@ -69,6 +72,10 @@ func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 }
 
 func PullScreenshot(url string) (screenshot Screenshot) {
+	page, err := browser.NewPage()
+	if err != nil {
+		log.Fatalf("could not create page: %v", err)
+	}
 	if _, err := page.Goto(url); err != nil {
 		log.Fatalf("could not goto: %v", err)
 	}
