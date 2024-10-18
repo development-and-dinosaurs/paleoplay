@@ -39,6 +39,7 @@ func CloseSteam() {
 }
 
 func PullPublicScreenshots(user string) (screenshots []Screenshot) {
+	fmt.Println("Pulling public screenshots for " + user)
 	page, err := browser.NewPage()
 	if err != nil {
 		log.Fatalf("could not create page: %v", err)
@@ -57,10 +58,12 @@ func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 		hrefs = append(hrefs, href)
 	}
 	var wg sync.WaitGroup
+	fmt.Printf("Processing %d screenshots/n", len(hrefs))
 	for _, href := range hrefs {
 		if !slices.Contains(processedScreenshots, href) {
 			wg.Add(1)
 			go func() {
+				fmt.Println("Pulling screenshot " + href)
 				defer wg.Done()
 				screenshot := PullScreenshot(href)
 				fmt.Println("Processing: " + screenshot.Date.Format("2006 Jan 02") + " - " + screenshot.Game)
@@ -87,7 +90,7 @@ func PullScreenshot(url string) (screenshot Screenshot) {
 	if err != nil {
 		log.Fatalf("could not get image href: %v", err)
 	}
-	storeUrl, err := page.Locator(".apphub_HeaderTop > div > a").First().GetAttribute("href")
+	storeUrl, err := page.Locator(".breadcrumbs > a").First().GetAttribute("href")
 	if err != nil {
 		log.Fatalf("could not get store href: %v", err)
 	}
