@@ -21,7 +21,7 @@ genres:
 
 func CreatePost(p Post) {
 	genres := Map(p.Genres, func(s string) string { return "  - " + s })
-	images := Map(p.Images, func(i Image) string { return "  - " + i.Destination })
+	images := Map(p.Images, func(i Image) string { return "  - images/posts/" + i.Destination })
 	post := fmt.Sprintf(postTemplate, p.Date, p.Game, strings.Join(images, "\n"), strings.Join(genres, "\n"))
 	os.MkdirAll("content/posts/", 0777)
 	os.WriteFile("content/posts/"+p.FileName(), []byte(post), 0777)
