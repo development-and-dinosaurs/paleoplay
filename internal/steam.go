@@ -62,7 +62,6 @@ func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 		hrefs = append(hrefs, href)
 	}
 	var wg sync.WaitGroup
-	fmt.Printf("Processing %d screenshots/n", len(hrefs))
 	for _, href := range hrefs {
 		if !slices.Contains(processedScreenshots, href) {
 			wg.Add(1)
