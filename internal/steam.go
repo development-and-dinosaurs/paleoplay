@@ -22,6 +22,10 @@ var processedScreenshots []string
 
 func InitSteam(state []string) {
 	processedScreenshots = state
+	err := playwright.Install(&playwright.RunOptions{Browsers: []string{"chromium"}})
+	if err != nil {
+		log.Fatalf("could not install playwright: %v", err)
+	}
 	pw, err := playwright.Run()
 	if err != nil {
 		log.Fatalf("could not start playwright: %v", err)
