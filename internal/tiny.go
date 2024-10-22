@@ -36,7 +36,7 @@ func compress(source string) (output string) {
 
 func convert(source string) (output []byte) {
 	client := &http.Client{}
-	jsonBody := []byte(`{"resize":{"method":"scale","width":1000},"convert":{"type":"image/webp"}}`)
+	jsonBody := []byte(`{"convert":{"type":"image/webp"}}`)
 	bodyReader := bytes.NewReader(jsonBody)
 	req, _ := http.NewRequest("POST", source, bodyReader)
 	req.SetBasicAuth("api", apiKey)
