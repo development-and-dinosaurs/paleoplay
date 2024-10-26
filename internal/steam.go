@@ -44,6 +44,30 @@ func CloseSteam() {
 
 func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 	fmt.Println("Pulling public screenshots for " + user)
+	maxConcurrent := 10
+	guard := make(chan struct{}, maxConcurrent)
+	hrefs := getScreenshotsToProcess(user)
+	var wg sync.WaitGroup
+	for i := 0; i < len(hrefs); i++ {
+		guard <- struct{}{}
+		wg.Add(1)
+		go func() {
+			fmt.Println("Pulling screenshot " + hrefs[i])
+			defer wg.Done()
+			screenshot := PullScreenshot(hrefs[i])
+			fmt.Println("Processing: " + screenshot.Date.Format("2006 Jan 02") + " - " + screenshot.Game)
+			screenshots = append(screenshots, screenshot)
+			<-guard
+		}()
+	}
+	wg.Wait()
+	sort.Slice(screenshots, func(i, j int) bool {
+		return screenshots[i].ID < screenshots[j].ID
+	})
+	return
+}
+
+func getScreenshotsToProcess(user string) (screenshotUrls []string) {
 	page, err := browser.NewPage()
 	if err != nil {
 		log.Fatalf("could not create page: %v", err)
@@ -52,32 +76,25 @@ func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 	if _, err := page.Goto(url); err != nil {
 		log.Fatalf("could not goto: %v", err)
 	}
-	entries, err := page.Locator(".profile_media_item").All()
-	if err != nil {
-		log.Fatalf("could not get entries: %v", err)
-	}
-	hrefs := make([]string, 0)
-	for _, entry := range entries {
-		href, _ := entry.GetAttribute("href")
-		hrefs = append(hrefs, href)
-	}
-	var wg sync.WaitGroup
-	for _, href := range hrefs {
-		if !slices.Contains(processedScreenshots, href) {
-			wg.Add(1)
-			go func() {
-				fmt.Println("Pulling screenshot " + href)
-				defer wg.Done()
-				screenshot := PullScreenshot(href)
-				fmt.Println("Processing: " + screenshot.Date.Format("2006 Jan 02") + " - " + screenshot.Game)
-				screenshots = append(screenshots, screenshot)
-			}()
+	stillProcessing := true
+	for stillProcessing {
+		items, _ := page.Locator(".profile_media_item").All()
+		toProcess := items[len(items)-12:]
+		for _, item := range toProcess {
+			href, _ := item.GetAttribute("href")
+			if !slices.Contains(processedScreenshots, href) {
+				screenshotUrls = append(screenshotUrls, href)
+			} else {
+				fmt.Printf("Found %d screenshots to process in total\n", len(screenshotUrls))
+				return
+			}
 		}
+		fmt.Printf("Found %d screenshots to process, looking for more...\n", len(items))
+		page.Mouse().Wheel(0, 15000)
+		time.Sleep(time.Millisecond * 500)
+		reachedBottom, _ := page.Locator("#EndOfInfiniteContent").Count()
+		stillProcessing = reachedBottom != 1
 	}
-	wg.Wait()
-	sort.Slice(screenshots, func(i, j int) bool {
-		return screenshots[i].ID < screenshots[j].ID
-	})
 	return
 }
 
