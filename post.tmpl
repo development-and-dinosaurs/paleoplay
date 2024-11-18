@@ -1,0 +1,17 @@
+---
+title: |-
+  {{ .Date }} - {{ .Game }}
+dates: {{ .Date }}
+images: 
+{{- range .Images }}
+  - {{ . }}
+{{- end }}
+games: |-
+   {{ .Game }}
+genres:
+{{- range .Genres }}
+  - {{ . }}
+{{- end }}
+steamId: {{ .SteamId }}
+paleoplay: {{ .Paleoplay }}
+---
