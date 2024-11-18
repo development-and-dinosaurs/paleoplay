@@ -8,12 +8,17 @@ import (
 )
 
 type PostData struct {
-	Date      string   `yaml:"dates"`
-	Images    []string `yaml:"images"`
-	Game      string   `yaml:"games"`
-	Genres    []string `yaml:"genres"`
-	SteamId   string   `yaml:"steamId"`
-	Paleoplay int      `yaml:"paleoplay"`
+	Date       string   `yaml:"dates"`
+	Images     []string `yaml:"images"`
+	Game       string   `yaml:"games"`
+	Price      float64  `yaml:"price"`
+	Genres     []string `yaml:"genres"`
+	Developers []string `yaml:"developers"`
+	Publishers []string `yaml:"publishers"`
+	Franchise  string   `yaml:"franchises"`
+	Tags       []string `yaml:"tags"`
+	SteamId    string   `yaml:"steamId"`
+	Paleoplay  int      `yaml:"paleoplay"`
 }
 
 func (p *PostData) FileName() string {
@@ -34,14 +39,20 @@ type Image struct {
 }
 
 func CreatePost(group ImageGrouping) {
-	gameDetails := GetGameDetails(group.SteamId)
+	apiDetails := GetGameApiDetails(group.SteamId)
+	storeDetails := GetGameStoreDetails(group.SteamId)
 	postData := PostData{
-		SteamId:   group.SteamId,
-		Date:      group.Date,
-		Images:    Map(group.Images, func(i Image) string { return i.Destination }),
-		Game:      gameDetails.Name,
-		Genres:    gameDetails.Genres,
-		Paleoplay: 1,
+		SteamId:    group.SteamId,
+		Date:       group.Date,
+		Images:     Map(group.Images, func(i Image) string { return i.Destination }),
+		Game:       apiDetails.Name,
+		Franchise:  storeDetails.Franchise,
+		Price:      float64(apiDetails.Price) / 100,
+		Genres:     apiDetails.Genres,
+		Developers: storeDetails.Developers,
+		Publishers: storeDetails.Publishers,
+		Tags:       storeDetails.Tags,
+		Paleoplay:  2,
 	}
 	tmpl, err := template.New("post.tmpl").ParseFiles("post.tmpl")
 	if err != nil {
