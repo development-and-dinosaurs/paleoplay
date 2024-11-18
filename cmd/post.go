@@ -22,11 +22,11 @@ for each one with the name of the game and the date of the screenshot.`,
 		state := internal.ReadState()
 		internal.InitSteam(state)
 		screenshots := internal.PullPublicScreenshots(user)
-		posts := internal.MapPostsFromScreenshots(screenshots)
+		groupedScreenshots := internal.GroupScreenshots(screenshots)
 		internal.InitTinify(tinifyApiKey)
 		var wg sync.WaitGroup
-		for _, post := range posts {
-			for _, image := range post.Images {
+		for _, screenshotGroup := range groupedScreenshots {
+			for _, image := range screenshotGroup.Images {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
@@ -35,10 +35,10 @@ for each one with the name of the game and the date of the screenshot.`,
 					os.WriteFile("static/images/posts/"+image.Destination, tinyImage, 0777)
 				}()
 			}
-			internal.CreatePost(post)
+			internal.CreatePost(screenshotGroup)
 		}
 		wg.Wait()
-		newState := internal.MapScreenshotIDs(screenshots)
+		newState := internal.Map(screenshots, func(s internal.Screenshot) string { return s.ID })
 		internal.WriteState(newState)
 		internal.CloseSteam()
 	},
