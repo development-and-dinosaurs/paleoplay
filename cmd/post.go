@@ -30,9 +30,9 @@ for each one with the name of the game and the date of the screenshot.`,
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					// tinyImage := internal.Tinify(image.Source)
+					tinyImage := internal.Tinify(image.Source)
 					os.MkdirAll("static/images/posts/", 0777)
-					os.WriteFile("static/images/posts/"+image.Destination, []byte("tinyImage"), 0777)
+					os.WriteFile("static/images/posts/"+image.Destination, tinyImage, 0777)
 				}()
 			}
 			internal.CreatePost(post)
