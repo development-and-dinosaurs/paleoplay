@@ -136,7 +136,7 @@ func PullScreenshot(url string) (screenshot Screenshot) {
 	return Screenshot{URL: url, Game: appName, ImageURL: imageUrl, Date: actualDate, SteamId: appId}
 }
 
-func GetGameDetails(appId string) GameDetails {
+func GetGameApiDetails(appId string) GameApiDetails {
 	resp, err := http.Get("https://store.steampowered.com/api/appdetails?appids=" + appId)
 	if err != nil {
 		log.Fatalf("could not get app API details: %v", err)
@@ -154,12 +154,67 @@ func GetGameDetails(appId string) GameDetails {
 	for _, g := range apiResponse[appId].Data.Genres {
 		genres = append(genres, g.Description)
 	}
-	return GameDetails{Name: apiResponse[appId].Data.Name, Genres: genres}
+	return GameApiDetails{Name: apiResponse[appId].Data.Name, Genres: genres, Price: apiResponse[appId].Data.PriceOverview.Initial}
 }
 
-type GameDetails struct {
+func GetGameStoreDetails(appId string) GameStoreDetails {
+	page, err := browser.NewPage()
+	if err != nil {
+		log.Fatalf("could not create page: %v", err)
+	}
+	if _, err := page.Goto("https://store.steampowered.com/app/" + appId); err != nil {
+		log.Fatalf("could not goto: %v", err)
+	}
+	devLinks, err := page.Locator(".dev_row a").All()
+	if err != nil {
+		log.Fatalf("could not get dev links: %v", err)
+	}
+	developers := []string{}
+	publishers := []string{}
+	for _, link := range devLinks {
+		href, _ := link.GetAttribute("href")
+		if strings.Contains(href, "/developer/") {
+			developer, _ := link.TextContent()
+			developers = append(developers, developer)
+		}
+		if strings.Contains(href, "/publisher/") {
+			publisher, _ := link.TextContent()
+			publishers = append(publishers, publisher)
+		}
+	}
+	slices.Sort(developers)
+	slices.Sort(publishers)
+	developers = slices.Compact(developers)
+	publishers = slices.Compact(publishers)
+	tagLinks, err := page.Locator(".app_tag").All()
+	if err != nil {
+		log.Fatalf("could not get dev links: %v", err)
+	}
+	tags := []string{}
+	for _, link := range tagLinks {
+		tag, _ := link.InnerText()
+		if strings.Contains(tag, "+") {
+			continue
+		}
+		tags = append(tags, strings.TrimSpace(tag))
+	}
+	child := page.GetByText("Franchise")
+	franchiseContainer := page.Locator(".dev_row").Filter(playwright.LocatorFilterOptions{Has: child})
+	franchise, _ := franchiseContainer.Locator("a").TextContent()
+	return GameStoreDetails{Developers: developers, Publishers: publishers, Tags: tags, Franchise: franchise}
+}
+
+type GameApiDetails struct {
 	Name   string
 	Genres []string
+	Price  int
+}
+
+type GameStoreDetails struct {
+	Developers []string
+	Publishers []string
+	Tags       []string
+	Franchise  string
 }
 
 type App struct {
@@ -167,12 +222,17 @@ type App struct {
 }
 
 type Data struct {
-	Genres []Genre `json:"genres"`
-	Name   string  `json:"name"`
+	Genres        []Genre       `json:"genres"`
+	Name          string        `json:"name"`
+	PriceOverview PriceOverview `json:"price_overview"`
 }
 
 type Genre struct {
 	Description string `json:"description"`
+}
+
+type PriceOverview struct {
+	Initial int `json:"initial"`
 }
 
 type Screenshot struct {
