@@ -62,7 +62,7 @@ func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 	}
 	wg.Wait()
 	sort.Slice(screenshots, func(i, j int) bool {
-		return screenshots[i].ID < screenshots[j].ID
+		return screenshots[i].URL < screenshots[j].URL
 	})
 	return
 }
@@ -127,13 +127,16 @@ func PullScreenshot(url string) (screenshot Screenshot) {
 	if err != nil {
 		log.Fatalf("could not parse date: %v", err)
 	}
+	appName, err := page.Locator(".apphub_AppName").First().TextContent()
+	if err != nil {
+		log.Fatalf("could not get app name: %v", err)
+	}
 	re := regexp.MustCompile(".*/app/(\\d*).*")
 	appId := re.FindStringSubmatch(storeUrl)[1]
-	details := getGameDetails(appId)
-	return Screenshot{ID: url, Game: details.Name, URL: imageUrl, Date: actualDate, Genres: details.Genres}
+	return Screenshot{URL: url, Game: appName, ImageURL: imageUrl, Date: actualDate, SteamId: appId}
 }
 
-func getGameDetails(appId string) GameDetails {
+func GetGameDetails(appId string) GameDetails {
 	resp, err := http.Get("https://store.steampowered.com/api/appdetails?appids=" + appId)
 	if err != nil {
 		log.Fatalf("could not get app API details: %v", err)
@@ -173,11 +176,11 @@ type Genre struct {
 }
 
 type Screenshot struct {
-	ID     string
-	Game   string
-	URL    string
-	Date   time.Time
-	Genres []string
+	URL      string
+	SteamId  string
+	Game     string
+	ImageURL string
+	Date     time.Time
 }
 
 var regex = regexp.MustCompile(`[\\\/:\*\?|"<>]*`)
@@ -186,18 +189,4 @@ func (s *Screenshot) FileName(number int) string {
 	game := strings.ToLower(strings.ReplaceAll(s.Game, " ", "-"))
 	date := s.Date.Format("2006-01-02")
 	return fmt.Sprintf("%s-%s-%d.webp", date, regex.ReplaceAllString(game, ""), number)
-}
-
-func MapScreenshotIDs(screenshots []Screenshot) (screenshotIDs []string) {
-	for _, s := range screenshots {
-		screenshotIDs = append(screenshotIDs, s.ID)
-	}
-	return
-}
-
-func MapScreenshotURLs(screenshots []Screenshot) (screenshotURLs []string) {
-	for _, s := range screenshots {
-		screenshotURLs = append(screenshotURLs, s.URL)
-	}
-	return
 }
