@@ -1,4 +1,6 @@
----
+package internal
+
+var postTemplate string = `---
 title: |-
   {{ .Date }} - {{ .Game }}
 dates: {{ .Date }}
@@ -29,3 +31,4 @@ tags:
 steamId: {{ .SteamId }}
 paleoplay: {{ .Paleoplay }}
 ---
+`
