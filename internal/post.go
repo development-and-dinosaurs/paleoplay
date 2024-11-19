@@ -55,8 +55,8 @@ func CreatePost(group ImageGrouping) {
 		Franchise:  storeDetails.Franchise,
 		Price:      float64(apiDetails.Price) / 100,
 		Genres:     apiDetails.Genres,
-		Developers: storeDetails.Developers,
-		Publishers: storeDetails.Publishers,
+		Developers: apiDetails.Developers,
+		Publishers: apiDetails.Publishers,
 		Tags:       storeDetails.Tags,
 		Paleoplay:  PaleoplayVersion,
 	}
@@ -72,8 +72,8 @@ func AugmentPost(postData PostData) {
 	}
 	postData.Price = float64(apiDetails.Price) / 100
 	postData.Franchise = storeDetails.Franchise
-	postData.Developers = storeDetails.Developers
-	postData.Publishers = storeDetails.Publishers
+	postData.Developers = apiDetails.Developers
+	postData.Publishers = apiDetails.Publishers
 	postData.Tags = storeDetails.Tags
 	postData.Paleoplay = PaleoplayVersion
 	writePost(postData)
