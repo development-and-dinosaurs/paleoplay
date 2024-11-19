@@ -7,6 +7,8 @@ import (
 	"text/template"
 )
 
+var PaleoplayVersion = 2
+
 type PostData struct {
 	Date       string   `yaml:"dates"`
 	Images     []string `yaml:"images"`
@@ -40,7 +42,11 @@ type Image struct {
 
 func CreatePost(group ImageGrouping) {
 	apiDetails := GetGameApiDetails(group.SteamId)
-	storeDetails := GetGameStoreDetails(group.SteamId)
+	storeDetails, err := GetGameStoreDetails(group.SteamId)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 	postData := PostData{
 		SteamId:    group.SteamId,
 		Date:       group.Date,
@@ -52,9 +58,29 @@ func CreatePost(group ImageGrouping) {
 		Developers: storeDetails.Developers,
 		Publishers: storeDetails.Publishers,
 		Tags:       storeDetails.Tags,
-		Paleoplay:  2,
+		Paleoplay:  PaleoplayVersion,
 	}
-	tmpl, err := template.New("post.tmpl").ParseFiles("post.tmpl")
+	writePost(postData)
+}
+
+func AugmentPost(postData PostData) {
+	apiDetails := GetGameApiDetails(postData.SteamId)
+	storeDetails, err := GetGameStoreDetails(postData.SteamId)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	postData.Price = float64(apiDetails.Price) / 100
+	postData.Franchise = storeDetails.Franchise
+	postData.Developers = storeDetails.Developers
+	postData.Publishers = storeDetails.Publishers
+	postData.Tags = storeDetails.Tags
+	postData.Paleoplay = PaleoplayVersion
+	writePost(postData)
+}
+
+func writePost(postData PostData) {
+	tmpl, err := template.New("post").Parse(postTemplate)
 	if err != nil {
 		panic(err)
 	}

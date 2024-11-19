@@ -2,6 +2,7 @@ package internal
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -157,13 +159,13 @@ func GetGameApiDetails(appId string) GameApiDetails {
 	return GameApiDetails{Name: apiResponse[appId].Data.Name, Genres: genres, Price: apiResponse[appId].Data.PriceOverview.Initial}
 }
 
-func GetGameStoreDetails(appId string) GameStoreDetails {
+func GetGameStoreDetails(appId string) (details GameStoreDetails, err error) {
 	page, err := browser.NewPage()
 	if err != nil {
 		log.Fatalf("could not create page: %v", err)
 	}
 	if _, err := page.Goto("https://store.steampowered.com/app/" + appId); err != nil {
-		log.Fatalf("could not goto: %v", err)
+		return GameStoreDetails{}, errors.New("Could not go to store page for " + appId)
 	}
 	devLinks, err := page.Locator(".dev_row a").All()
 	if err != nil {
@@ -201,7 +203,49 @@ func GetGameStoreDetails(appId string) GameStoreDetails {
 	child := page.GetByText("Franchise")
 	franchiseContainer := page.Locator(".dev_row").Filter(playwright.LocatorFilterOptions{Has: child})
 	franchise, _ := franchiseContainer.Locator("a").TextContent()
-	return GameStoreDetails{Developers: developers, Publishers: publishers, Tags: tags, Franchise: franchise}
+	return GameStoreDetails{Developers: developers, Publishers: publishers, Tags: tags, Franchise: franchise}, nil
+}
+
+var appListResponse AppListResponse = AppListResponse{}
+
+func GetSteamId(game string) (steamId string) {
+	if len(appListResponse.AppList.Apps) == 0 {
+		resp, err := http.Get("http://api.steampowered.com/ISteamApps/GetAppList/v0002/?format=json")
+		if err != nil {
+			log.Fatalf("could not get app API details: %v", err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatalf("could not read body: %v", err)
+		}
+		err = json.Unmarshal(body, &appListResponse)
+		if err != nil {
+			log.Fatalf("could not unmarshal body: %v", err)
+		}
+	}
+	for _, a := range appListResponse.AppList.Apps {
+		if a.Name == game {
+			steamId = strconv.Itoa(a.AppId)
+			break
+		}
+	}
+	if steamId == "" {
+		fmt.Println("Could not find Steam ID for " + game + ". Please add Steam ID manually")
+	}
+	return
+}
+
+type AppListResponse struct {
+	AppList AppList `json:"applist"`
+}
+
+type AppList struct {
+	Apps []ListedApp `json:"apps"`
+}
+
+type ListedApp struct {
+	AppId int    `json:"appid"`
+	Name  string `json:"name"`
 }
 
 type GameApiDetails struct {
