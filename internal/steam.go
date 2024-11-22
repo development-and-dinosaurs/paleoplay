@@ -156,7 +156,13 @@ func GetGameApiDetails(appId string) GameApiDetails {
 	for _, g := range apiResponse[appId].Data.Genres {
 		genres = append(genres, g.Description)
 	}
-	return GameApiDetails{Name: apiResponse[appId].Data.Name, Genres: genres, Price: apiResponse[appId].Data.PriceOverview.Initial}
+	return GameApiDetails{
+		Name:       apiResponse[appId].Data.Name,
+		Genres:     genres,
+		Price:      apiResponse[appId].Data.PriceOverview.Initial,
+		Developers: apiResponse[appId].Data.Developers,
+		Publishers: apiResponse[appId].Data.Publishers,
+	}
 }
 
 func GetGameStoreDetails(appId string) (details GameStoreDetails, err error) {
@@ -167,27 +173,6 @@ func GetGameStoreDetails(appId string) (details GameStoreDetails, err error) {
 	if _, err := page.Goto("https://store.steampowered.com/app/" + appId); err != nil {
 		return GameStoreDetails{}, errors.New("Could not go to store page for " + appId)
 	}
-	devLinks, err := page.Locator(".dev_row a").All()
-	if err != nil {
-		log.Fatalf("could not get dev links: %v", err)
-	}
-	developers := []string{}
-	publishers := []string{}
-	for _, link := range devLinks {
-		href, _ := link.GetAttribute("href")
-		if strings.Contains(href, "/developer/") {
-			developer, _ := link.TextContent()
-			developers = append(developers, developer)
-		}
-		if strings.Contains(href, "/publisher/") {
-			publisher, _ := link.TextContent()
-			publishers = append(publishers, publisher)
-		}
-	}
-	slices.Sort(developers)
-	slices.Sort(publishers)
-	developers = slices.Compact(developers)
-	publishers = slices.Compact(publishers)
 	tagLinks, err := page.Locator(".app_tag").All()
 	if err != nil {
 		log.Fatalf("could not get dev links: %v", err)
@@ -203,7 +188,7 @@ func GetGameStoreDetails(appId string) (details GameStoreDetails, err error) {
 	child := page.GetByText("Franchise")
 	franchiseContainer := page.Locator(".dev_row").Filter(playwright.LocatorFilterOptions{Has: child})
 	franchise, _ := franchiseContainer.Locator("a").TextContent()
-	return GameStoreDetails{Developers: developers, Publishers: publishers, Tags: tags, Franchise: franchise}, nil
+	return GameStoreDetails{Tags: tags, Franchise: franchise}, nil
 }
 
 var appListResponse AppListResponse = AppListResponse{}
@@ -249,16 +234,16 @@ type ListedApp struct {
 }
 
 type GameApiDetails struct {
-	Name   string
-	Genres []string
-	Price  int
+	Name       string
+	Genres     []string
+	Price      int
+	Developers []string `json:"developers"`
+	Publishers []string `json:"publishers"`
 }
 
 type GameStoreDetails struct {
-	Developers []string
-	Publishers []string
-	Tags       []string
-	Franchise  string
+	Tags      []string
+	Franchise string
 }
 
 type App struct {
@@ -268,6 +253,8 @@ type App struct {
 type Data struct {
 	Genres        []Genre       `json:"genres"`
 	Name          string        `json:"name"`
+	Developers    []string      `json:"developers"`
+	Publishers    []string      `json:"publishers"`
 	PriceOverview PriceOverview `json:"price_overview"`
 }
 
