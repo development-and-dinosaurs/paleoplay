@@ -63,12 +63,25 @@ func CreatePost(group ImageGrouping) {
 	writePost(postData)
 }
 
+var gameApiDetails = make(map[string]GameApiDetails)
+var gameStoreDetails = make(map[string]GameStoreDetails)
+
 func AugmentPost(postData PostData) {
-	apiDetails := GetGameApiDetails(postData.SteamId)
-	storeDetails, err := GetGameStoreDetails(postData.SteamId)
-	if err != nil {
-		fmt.Println(err)
-		return
+	steamId := postData.SteamId
+	apiDetails, inCache := gameApiDetails[steamId]
+	if !inCache {
+		apiDetails = GetGameApiDetails(steamId)
+		gameApiDetails[steamId] = apiDetails
+	}
+	storeDetails, inCache := gameStoreDetails[steamId]
+	if !inCache {
+		var err error
+		storeDetails, err = GetGameStoreDetails(steamId)
+		gameStoreDetails[steamId] = storeDetails
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 	}
 	postData.Price = float64(apiDetails.Price) / 100
 	postData.Franchise = storeDetails.Franchise

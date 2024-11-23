@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
 
 	"github.com/development-and-dinosaurs/paleoplay/internal"
 	"github.com/spf13/cobra"
@@ -25,30 +24,21 @@ Paleoplay.`,
 			log.Fatalf("could not get posts: %v", err)
 		}
 		internal.InitSteam([]string{})
-		maxConcurrent := 10
-		guard := make(chan struct{}, maxConcurrent)
-		var wg sync.WaitGroup
 		for _, post := range posts {
-			guard <- struct{}{}
-			wg.Add(1)
-			go func() {
-				p := internal.PostData{}
-				contents, err := os.ReadFile("content/posts/" + post.Name())
-				if err != nil {
-					fmt.Println(err)
-				}
-				yaml.Unmarshal(contents, &p)
-				if p.SteamId == "" {
-					p.SteamId = internal.GetSteamId(p.Game)
-				}
-				if p.SteamId != "" && p.Paleoplay < internal.PaleoplayVersion {
-					fmt.Println("Augmenting post " + p.FileName())
-					internal.AugmentPost(p)
-				}
-				<-guard
-			}()
+			p := internal.PostData{}
+			contents, err := os.ReadFile("content/posts/" + post.Name())
+			if err != nil {
+				fmt.Println(err)
+			}
+			yaml.Unmarshal(contents, &p)
+			if p.SteamId == "" {
+				p.SteamId = internal.GetSteamId(p.Game)
+			}
+			if p.SteamId != "" && p.Paleoplay < internal.PaleoplayVersion {
+				fmt.Println("Augmenting post " + p.FileName())
+				internal.AugmentPost(p)
+			}
 		}
-		wg.Wait()
 	},
 }
 
