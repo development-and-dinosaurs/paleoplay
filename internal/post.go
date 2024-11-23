@@ -50,7 +50,7 @@ func CreatePost(group ImageGrouping) {
 	postData := PostData{
 		SteamId:    group.SteamId,
 		Date:       group.Date,
-		Images:     Map(group.Images, func(i Image) string { return i.Destination }),
+		Images:     Map(group.Images, func(i Image) string { return "images/posts/" + i.Destination }),
 		Game:       apiDetails.Name,
 		Franchise:  storeDetails.Franchise,
 		Price:      float64(apiDetails.Price) / 100,
