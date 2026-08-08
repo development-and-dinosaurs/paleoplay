@@ -46,20 +46,27 @@ func CloseSteam() {
 
 func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 	fmt.Println("Pulling public screenshots for " + user)
-	maxConcurrent := 10
+	maxConcurrent := 3
 	guard := make(chan struct{}, maxConcurrent)
 	hrefs := getScreenshotsToProcess(user)
 	var wg sync.WaitGroup
+	var mu sync.Mutex
 	for i := 0; i < len(hrefs); i++ {
 		guard <- struct{}{}
 		wg.Add(1)
 		go func() {
 			fmt.Println("Pulling screenshot " + hrefs[i])
 			defer wg.Done()
-			screenshot := PullScreenshot(hrefs[i])
+			defer func() { <-guard }()
+			screenshot, err := PullScreenshot(hrefs[i])
+			if err != nil {
+				fmt.Printf("Skipping %s: %v\n", hrefs[i], err)
+				return
+			}
 			fmt.Println("Processing: " + screenshot.Date.Format("2006 Jan 02") + " - " + screenshot.Game)
+			mu.Lock()
 			screenshots = append(screenshots, screenshot)
-			<-guard
+			mu.Unlock()
 		}()
 	}
 	wg.Wait()
@@ -69,19 +76,48 @@ func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 	return
 }
 
+const maxNavAttempts = 4
+
+// Steam rate limits when pages are pulled in parallel. Goto only returns an
+// error for network failures, so the status has to be checked by hand or a 429
+// looks like a successful navigation and every locator on the page times out.
+func gotoWithRetry(page playwright.Page, url string) error {
+	backoff := time.Second
+	for attempt := 1; ; attempt++ {
+		response, err := page.Goto(url)
+		if err != nil {
+			return fmt.Errorf("could not goto %s: %w", url, err)
+		}
+		if response == nil || response.Status() == 200 {
+			return nil
+		}
+		status := response.Status()
+		if attempt == maxNavAttempts || !(status == 429 || status >= 500) {
+			return fmt.Errorf("got status %d for %s", status, url)
+		}
+		fmt.Printf("Got status %d for %s, retrying in %s\n", status, url, backoff)
+		time.Sleep(backoff)
+		backoff *= 2
+	}
+}
+
 func getScreenshotsToProcess(user string) (screenshotUrls []string) {
 	page, err := browser.NewPage()
 	if err != nil {
 		log.Fatalf("could not create page: %v", err)
 	}
 	url := fmt.Sprintf("https://steamcommunity.com/id/%s/screenshots/", user)
-	if _, err := page.Goto(url); err != nil {
+	if err := gotoWithRetry(page, url); err != nil {
 		log.Fatalf("could not goto: %v", err)
 	}
 	stillProcessing := true
 	for stillProcessing {
 		items, _ := page.Locator(".profile_media_item").All()
-		toProcess := items[len(items)-12:]
+		// Each scroll loads another page of 12, so only the newest batch is unseen.
+		toProcess := items
+		if len(items) > 12 {
+			toProcess = items[len(items)-12:]
+		}
 		for _, item := range toProcess {
 			href, _ := item.GetAttribute("href")
 			if !slices.Contains(processedScreenshots, href) {
@@ -100,57 +136,65 @@ func getScreenshotsToProcess(user string) (screenshotUrls []string) {
 	return
 }
 
-func PullScreenshot(url string) (screenshot Screenshot) {
+func PullScreenshot(url string) (screenshot Screenshot, err error) {
 	page, err := browser.NewPage()
 	if err != nil {
-		log.Fatalf("could not create page: %v", err)
+		return Screenshot{}, fmt.Errorf("could not create page: %w", err)
 	}
-	if _, err := page.Goto(url); err != nil {
-		log.Fatalf("could not goto: %v", err)
+	defer page.Close()
+	if err := gotoWithRetry(page, url); err != nil {
+		return Screenshot{}, err
 	}
 	imageUrl, err := page.Locator(".actualmediactn > a").First().GetAttribute("href")
 	if err != nil {
-		log.Fatalf("could not get image href: %v", err)
+		return Screenshot{}, fmt.Errorf("could not get image href: %w", err)
 	}
 	storeUrl, err := page.Locator(".breadcrumbs > a").First().GetAttribute("href")
 	if err != nil {
-		log.Fatalf("could not get store href: %v", err)
+		return Screenshot{}, fmt.Errorf("could not get store href: %w", err)
 	}
 	stats, err := page.Locator(".detailsStatRight").All()
 	if err != nil {
-		log.Fatalf("could not get stats: %v", err)
+		return Screenshot{}, fmt.Errorf("could not get stats: %w", err)
+	}
+	if len(stats) < 2 {
+		return Screenshot{}, fmt.Errorf("expected at least 2 stats, got %d", len(stats))
 	}
 	postedTime, err := stats[1].TextContent()
 	if err != nil {
-		log.Fatalf("could not get stats: %v", err)
+		return Screenshot{}, fmt.Errorf("could not get stats: %w", err)
 	}
 	postedDate := strings.Split(postedTime, " @")[0]
 	actualDate, err := ParseTime(postedDate)
 	if err != nil {
-		log.Fatalf("could not parse date: %v", err)
+		return Screenshot{}, fmt.Errorf("could not parse date: %w", err)
 	}
 	appName, err := page.Locator(".apphub_AppName").First().TextContent()
 	if err != nil {
-		log.Fatalf("could not get app name: %v", err)
+		return Screenshot{}, fmt.Errorf("could not get app name: %w", err)
 	}
 	re := regexp.MustCompile(".*/app/(\\d*).*")
-	appId := re.FindStringSubmatch(storeUrl)[1]
-	return Screenshot{URL: url, Game: appName, ImageURL: imageUrl, Date: actualDate, SteamId: appId}
+	appMatch := re.FindStringSubmatch(storeUrl)
+	if appMatch == nil {
+		return Screenshot{}, fmt.Errorf("could not find app id in %s", storeUrl)
+	}
+	return Screenshot{URL: url, Game: appName, ImageURL: imageUrl, Date: actualDate, SteamId: appMatch[1]}, nil
 }
 
-func GetGameApiDetails(appId string) GameApiDetails {
+func GetGameApiDetails(appId string) (GameApiDetails, error) {
 	resp, err := http.Get("https://store.steampowered.com/api/appdetails?appids=" + appId)
 	if err != nil {
-		log.Fatalf("could not get app API details: %v", err)
+		return GameApiDetails{}, fmt.Errorf("could not get app API details for %s: %w", appId, err)
 	}
+	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatalf("could not read body: %v", err)
+		return GameApiDetails{}, fmt.Errorf("could not read body for %s: %w", appId, err)
 	}
 	var apiResponse map[string]App
 	err = json.Unmarshal(body, &apiResponse)
 	if err != nil {
-		log.Fatalf("could not unmarshal body: %v", err)
+		return GameApiDetails{}, fmt.Errorf("could not unmarshal body for %s: %w", appId, err)
 	}
 	genres := make([]string, 0)
 	for _, g := range apiResponse[appId].Data.Genres {
@@ -162,20 +206,21 @@ func GetGameApiDetails(appId string) GameApiDetails {
 		Price:      apiResponse[appId].Data.PriceOverview.Initial,
 		Developers: apiResponse[appId].Data.Developers,
 		Publishers: apiResponse[appId].Data.Publishers,
-	}
+	}, nil
 }
 
 func GetGameStoreDetails(appId string) (details GameStoreDetails, err error) {
 	page, err := browser.NewPage()
 	if err != nil {
-		log.Fatalf("could not create page: %v", err)
+		return GameStoreDetails{}, fmt.Errorf("could not create page for %s: %w", appId, err)
 	}
-	if _, err := page.Goto("https://store.steampowered.com/app/" + appId); err != nil {
+	defer page.Close()
+	if err := gotoWithRetry(page, "https://store.steampowered.com/app/"+appId); err != nil {
 		return GameStoreDetails{}, errors.New("Could not go to store page for " + appId)
 	}
 	tagLinks, err := page.Locator(".app_tag").All()
 	if err != nil {
-		log.Fatalf("could not get dev links: %v", err)
+		return GameStoreDetails{}, fmt.Errorf("could not get tags for %s: %w", appId, err)
 	}
 	tags := []string{}
 	for _, link := range tagLinks {

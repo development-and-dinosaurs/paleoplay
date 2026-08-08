@@ -38,14 +38,19 @@ type ImageGrouping struct {
 type Image struct {
 	Source      string
 	Destination string
+	// Screenshot is the page the image came from, so a published post can be
+	// recorded in state without re-deriving it.
+	Screenshot string
 }
 
-func CreatePost(group ImageGrouping) {
-	apiDetails := GetGameApiDetails(group.SteamId)
+func CreatePost(group ImageGrouping) error {
+	apiDetails, err := GetGameApiDetails(group.SteamId)
+	if err != nil {
+		return err
+	}
 	storeDetails, err := GetGameStoreDetails(group.SteamId)
 	if err != nil {
-		fmt.Println(err)
-		return
+		return err
 	}
 	postData := PostData{
 		SteamId:    group.SteamId,
@@ -60,7 +65,7 @@ func CreatePost(group ImageGrouping) {
 		Tags:       storeDetails.Tags,
 		Paleoplay:  PaleoplayVersion,
 	}
-	writePost(postData)
+	return writePost(postData)
 }
 
 var gameApiDetails = make(map[string]GameApiDetails)
@@ -70,7 +75,12 @@ func AugmentPost(postData PostData) {
 	steamId := postData.SteamId
 	apiDetails, inCache := gameApiDetails[steamId]
 	if !inCache {
-		apiDetails = GetGameApiDetails(steamId)
+		var err error
+		apiDetails, err = GetGameApiDetails(steamId)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 		gameApiDetails[steamId] = apiDetails
 	}
 	storeDetails, inCache := gameStoreDetails[steamId]
@@ -89,24 +99,29 @@ func AugmentPost(postData PostData) {
 	postData.Publishers = apiDetails.Publishers
 	postData.Tags = storeDetails.Tags
 	postData.Paleoplay = PaleoplayVersion
-	writePost(postData)
+	if err := writePost(postData); err != nil {
+		fmt.Println(err)
+	}
 }
 
-func writePost(postData PostData) {
+func writePost(postData PostData) error {
 	tmpl, err := template.New("post").Parse(postTemplate)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("could not parse post template: %w", err)
 	}
 	filename := "content/posts/" + postData.FileName()
-	os.MkdirAll("content/posts/", 0777)
+	if err := os.MkdirAll("content/posts/", 0777); err != nil {
+		return fmt.Errorf("could not create posts directory: %w", err)
+	}
 	file, err := os.Create(filename)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("could not create %s: %w", filename, err)
 	}
-	err = tmpl.Execute(file, postData)
-	if err != nil {
-		panic(err)
+	defer file.Close()
+	if err := tmpl.Execute(file, postData); err != nil {
+		return fmt.Errorf("could not write %s: %w", filename, err)
 	}
+	return nil
 }
 
 func GroupScreenshots(screenshots []Screenshot) (imageGroupings []ImageGrouping) {
@@ -114,7 +129,7 @@ func GroupScreenshots(screenshots []Screenshot) (imageGroupings []ImageGrouping)
 	for _, v := range gameOnDate {
 		images := make([]Image, len(v))
 		for i := range v {
-			images[i] = Image{v[i].ImageURL, v[i].FileName(i + 1)}
+			images[i] = Image{Source: v[i].ImageURL, Destination: v[i].FileName(i + 1), Screenshot: v[i].URL}
 		}
 		imageGrouping := ImageGrouping{
 			SteamId: v[0].SteamId,
