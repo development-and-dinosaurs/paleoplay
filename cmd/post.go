@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/development-and-dinosaurs/paleoplay/internal"
 	"github.com/spf13/cobra"
@@ -21,11 +22,15 @@ for each one with the name of the game and the date of the screenshot.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		user := cmd.Flag("user").Value.String()
 		tinifyApiKey := cmd.Flag("tinify-api-key").Value.String()
+		steamApiKey := cmd.Flag("steam-api-key").Value.String()
+		maxImages, _ := cmd.Flags().GetInt("max-images")
 		state := internal.ReadState()
+		internal.InitSteamApi(steamApiKey)
 		internal.InitSteam(state)
-		defer internal.CloseSteam()
 		screenshots := internal.PullPublicScreenshots(user)
 		posts := internal.GroupScreenshots(screenshots)
+		posts = internal.DeferRecentGroups(posts, time.Now())
+		posts = internal.CapGroups(posts, maxImages)
 		internal.InitTinify(tinifyApiKey)
 		// Deferred so whatever did publish is still recorded if a later post
 		// takes the process down, rather than the whole run being repeated.
@@ -90,4 +95,8 @@ func init() {
 	postCmd.MarkFlagRequired("user")
 	postCmd.Flags().StringP("tinify-api-key", "t", "", "The Tinify API key to use (required)")
 	postCmd.MarkFlagRequired("tinify-api-key")
+	postCmd.Flags().StringP("steam-api-key", "s", "", "The Steam Web API key to use (required)")
+	postCmd.MarkFlagRequired("steam-api-key")
+	postCmd.Flags().Int("max-images", 100,
+		"Maximum images to compress in one run, rounded down to whole posts (0 for no limit)")
 }
