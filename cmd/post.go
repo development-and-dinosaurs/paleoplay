@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"sync"
 
@@ -21,27 +23,65 @@ for each one with the name of the game and the date of the screenshot.`,
 		tinifyApiKey := cmd.Flag("tinify-api-key").Value.String()
 		state := internal.ReadState()
 		internal.InitSteam(state)
+		defer internal.CloseSteam()
 		screenshots := internal.PullPublicScreenshots(user)
 		posts := internal.GroupScreenshots(screenshots)
 		internal.InitTinify(tinifyApiKey)
-		var wg sync.WaitGroup
+		// Deferred so whatever did publish is still recorded if a later post
+		// takes the process down, rather than the whole run being repeated.
+		var published []string
+		defer func() { internal.WriteState(published) }()
+		failed := 0
 		for _, post := range posts {
-			for _, image := range post.Images {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					tinyImage := internal.Tinify(image.Source)
-					os.MkdirAll("static/images/posts/", 0777)
-					os.WriteFile("static/images/posts/"+image.Destination, tinyImage, 0777)
-				}()
+			urls, err := publishPost(post)
+			if err != nil {
+				fmt.Printf("Skipping post for %s on %s: %v\n", post.SteamId, post.Date, err)
+				failed++
+				continue
 			}
-			internal.CreatePost(post)
+			published = append(published, urls...)
 		}
-		wg.Wait()
-		newState := internal.Map(screenshots, func(s internal.Screenshot) string { return s.URL })
-		internal.WriteState(newState)
-		internal.CloseSteam()
+		fmt.Printf("Published %d posts, skipped %d\n", len(posts)-failed, failed)
 	},
+}
+
+// publishPost compresses every image in the group, writes them, and then writes
+// the post. A group is all or nothing: if any image fails, the post is not
+// written and none of its screenshots are recorded, so the next run retries the
+// whole group rather than leaving a post with images missing from it.
+func publishPost(group internal.ImageGrouping) ([]string, error) {
+	images := make([][]byte, len(group.Images))
+	errs := make([]error, len(group.Images))
+	var wg sync.WaitGroup
+	for i, image := range group.Images {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tinyImage, err := internal.Tinify(image.Source)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			images[i] = tinyImage
+		}()
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll("static/images/posts/", 0777); err != nil {
+		return nil, fmt.Errorf("could not create images directory: %w", err)
+	}
+	for i, image := range group.Images {
+		destination := "static/images/posts/" + image.Destination
+		if err := os.WriteFile(destination, images[i], 0777); err != nil {
+			return nil, fmt.Errorf("could not write %s: %w", destination, err)
+		}
+	}
+	if err := internal.CreatePost(group); err != nil {
+		return nil, err
+	}
+	return internal.Map(group.Images, func(i internal.Image) string { return i.Screenshot }), nil
 }
 
 func init() {
