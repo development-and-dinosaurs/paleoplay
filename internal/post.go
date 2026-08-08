@@ -3,8 +3,10 @@ package internal
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"text/template"
+	"time"
 )
 
 var PaleoplayVersion = 2
@@ -138,5 +140,55 @@ func GroupScreenshots(screenshots []Screenshot) (imageGroupings []ImageGrouping)
 		}
 		imageGroupings = append(imageGroupings, imageGrouping)
 	}
+	// Map iteration order is random, so sort to keep runs reproducible and to
+	// make the cap below take the oldest posts first.
+	sort.Slice(imageGroupings, func(i, j int) bool {
+		if imageGroupings[i].Date != imageGroupings[j].Date {
+			return imageGroupings[i].Date < imageGroupings[j].Date
+		}
+		return imageGroupings[i].SteamId < imageGroupings[j].SteamId
+	})
 	return
+}
+
+// DeferRecentGroups holds back posts dated today. More screenshots can still be
+// uploaded before the day is out, and they would arrive after the post was
+// written: writePost truncates by filename and image names restart at 1, so the
+// later run would replace the post and clobber its images rather than add to
+// them. Once a day has passed no new screenshot can carry that date, so
+// deferring only the current day is enough.
+func DeferRecentGroups(groups []ImageGrouping, now time.Time) []ImageGrouping {
+	today := now.UTC().Format("2006-01-02")
+	kept := make([]ImageGrouping, 0, len(groups))
+	for _, group := range groups {
+		if group.Date >= today {
+			fmt.Printf("Deferring post for %s on %s until the day is complete\n", group.SteamId, group.Date)
+			continue
+		}
+		kept = append(kept, group)
+	}
+	return kept
+}
+
+// CapGroups trims whole posts off the end until the run would compress no more
+// than max images, guarding against a state mismatch turning into a thousand
+// Tinify calls. Groups are never split: a partially published post would be
+// rewritten with only its remaining images next run, because the filename is
+// derived from the date and game rather than the images.
+func CapGroups(groups []ImageGrouping, max int) []ImageGrouping {
+	if max <= 0 {
+		return groups
+	}
+	images := 0
+	for i, group := range groups {
+		// Always allow the first post through, even if it alone exceeds the
+		// cap, or an oversized post would stall every future run.
+		if i > 0 && images+len(group.Images) > max {
+			fmt.Printf("Capping run at %d posts (%d images); %d posts left for next run\n",
+				i, images, len(groups)-i)
+			return groups[:i]
+		}
+		images += len(group.Images)
+	}
+	return groups
 }
