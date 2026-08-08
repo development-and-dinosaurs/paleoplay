@@ -23,8 +23,10 @@ func Version() string {
 }
 
 var rootCmd = &cobra.Command{
-	Use:     "paleoplay",
-	Version: Version(),
+	Use: "paleoplay",
+	// Runtime failures are not usage errors, so do not dump the help text.
+	SilenceUsage: true,
+	Version:      Version(),
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("Welcome to Paleoplay %s (post format v%d)\n", Version(), internal.PaleoplayVersion)
 	},

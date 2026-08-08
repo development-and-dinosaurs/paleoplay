@@ -19,25 +19,36 @@ var postCmd = &cobra.Command{
 This will pull screenshots from Steam, run them through the Tinify API to
 compress and resize them for web hosting, and create a Hugo style blog post
 for each one with the name of the game and the date of the screenshot.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		user := cmd.Flag("user").Value.String()
 		tinifyApiKey := cmd.Flag("tinify-api-key").Value.String()
 		steamApiKey := cmd.Flag("steam-api-key").Value.String()
 		maxImages, _ := cmd.Flags().GetInt("max-images")
 		state := internal.ReadState()
+		fmt.Printf("Read %d already processed screenshots from state\n", len(state))
 		internal.InitSteamApi(steamApiKey)
 		internal.InitSteam(state)
-		screenshots := internal.PullPublicScreenshots(user)
+		screenshots, err := internal.PullPublicScreenshots(user)
+		if err != nil {
+			return err
+		}
 		posts := internal.GroupScreenshots(screenshots)
+		fmt.Printf("Grouped %d screenshots into %d posts\n", len(screenshots), len(posts))
 		posts = internal.DeferRecentGroups(posts, time.Now())
 		posts = internal.CapGroups(posts, maxImages)
 		internal.InitTinify(tinifyApiKey)
 		// Deferred so whatever did publish is still recorded if a later post
 		// takes the process down, rather than the whole run being repeated.
 		var published []string
-		defer func() { internal.WriteState(published) }()
+		defer func() {
+			fmt.Printf("Recording %d published screenshots in state\n", len(published))
+			internal.WriteState(published)
+		}()
+		fmt.Printf("Publishing %d posts\n", len(posts))
 		failed := 0
-		for _, post := range posts {
+		for i, post := range posts {
+			fmt.Printf("Publishing post %d of %d: %s on %s (%d images)\n",
+				i+1, len(posts), post.SteamId, post.Date, len(post.Images))
 			urls, err := publishPost(post)
 			if err != nil {
 				fmt.Printf("Skipping post for %s on %s: %v\n", post.SteamId, post.Date, err)
@@ -47,6 +58,10 @@ for each one with the name of the game and the date of the screenshot.`,
 			published = append(published, urls...)
 		}
 		fmt.Printf("Published %d posts, skipped %d\n", len(posts)-failed, failed)
+		if failed > 0 {
+			return fmt.Errorf("%d of %d posts could not be published", failed, len(posts))
+		}
+		return nil
 	},
 }
 
@@ -58,6 +73,7 @@ func publishPost(group internal.ImageGrouping) ([]string, error) {
 	images := make([][]byte, len(group.Images))
 	errs := make([]error, len(group.Images))
 	var wg sync.WaitGroup
+	fmt.Printf("  Compressing %d images through Tinify\n", len(group.Images))
 	for i, image := range group.Images {
 		wg.Add(1)
 		go func() {
@@ -68,6 +84,7 @@ func publishPost(group internal.ImageGrouping) ([]string, error) {
 				return
 			}
 			images[i] = tinyImage
+			fmt.Printf("  Compressed %s (%d bytes)\n", image.Destination, len(tinyImage))
 		}()
 	}
 	wg.Wait()
@@ -82,6 +99,7 @@ func publishPost(group internal.ImageGrouping) ([]string, error) {
 		if err := os.WriteFile(destination, images[i], 0777); err != nil {
 			return nil, fmt.Errorf("could not write %s: %w", destination, err)
 		}
+		fmt.Printf("  Wrote %s\n", destination)
 	}
 	if err := internal.CreatePost(group); err != nil {
 		return nil, err

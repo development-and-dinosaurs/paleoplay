@@ -18,7 +18,13 @@ func ReadState() (state []string) {
 	if err != nil {
 		log.Fatalf("could not read state file: %v", err)
 	}
-	state = strings.Split(string(stateContents), "\n")
+	// A trailing newline would otherwise leave an empty entry, which inflates
+	// the reported count and sits in the processed set forever.
+	for _, line := range strings.Split(string(stateContents), "\n") {
+		if line != "" {
+			state = append(state, line)
+		}
+	}
 	return state
 }
 

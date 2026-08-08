@@ -53,7 +53,7 @@ type vanityResponse struct {
 
 func callSteamApi(endpoint string, params url.Values, out any) error {
 	params.Set("key", steamApiKey)
-	resp, err := http.Get("https://api.steampowered.com/" + endpoint + "?" + params.Encode())
+	resp, err := httpClient.Get("https://api.steampowered.com/" + endpoint + "?" + params.Encode())
 	if err != nil {
 		return fmt.Errorf("could not call %s: %w", endpoint, err)
 	}
@@ -84,6 +84,7 @@ func ResolveSteamId(user string) (string, error) {
 	if v.Response.Success != 1 || v.Response.SteamId == "" {
 		return "", fmt.Errorf("could not resolve steam user %q", user)
 	}
+	fmt.Printf("Resolved %s to steam id %s\n", user, v.Response.SteamId)
 	return v.Response.SteamId, nil
 }
 
@@ -129,6 +130,7 @@ func tagNames() (map[int]string, error) {
 		names[t.TagId] = t.Name
 	}
 	tagNameCache = names
+	fmt.Printf("Fetched %d Steam tag names\n", len(names))
 	return names, nil
 }
 
@@ -197,12 +199,11 @@ func (f publishedFile) screenshot() Screenshot {
 // PullPublicScreenshots lists every screenshot on a profile through the Steam
 // Web API and returns the ones not already in state. This replaces loading each
 // screenshot page in a browser, which is what tripped Steam's rate limiting.
-func PullPublicScreenshots(user string) (screenshots []Screenshot) {
+func PullPublicScreenshots(user string) (screenshots []Screenshot, err error) {
 	fmt.Println("Pulling public screenshots for " + user)
 	steamId, err := ResolveSteamId(user)
 	if err != nil {
-		fmt.Printf("Could not pull screenshots: %v\n", err)
-		return nil
+		return nil, err
 	}
 
 	listed := 0
@@ -215,7 +216,13 @@ func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 			"page":       {strconv.Itoa(page)},
 		}
 		if err := callSteamApi("IPublishedFileService/GetUserFiles/v1/", params, &r); err != nil {
-			fmt.Printf("Could not list screenshots: %v\n", err)
+			if page == 1 {
+				// Nothing was listed at all, so there is no run to salvage.
+				return nil, err
+			}
+			// A later page failing just means a shorter run; whatever is missed
+			// stays out of state and is picked up next time.
+			fmt.Printf("Stopping listing early: %v\n", err)
 			break
 		}
 		if len(r.Response.Files) == 0 {
@@ -242,5 +249,5 @@ func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 		return screenshots[i].URL < screenshots[j].URL
 	})
 	fmt.Printf("Found %d screenshots to process in total\n", len(screenshots))
-	return
+	return screenshots, nil
 }

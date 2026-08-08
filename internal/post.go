@@ -46,10 +46,12 @@ type Image struct {
 }
 
 func CreatePost(group ImageGrouping) error {
+	fmt.Printf("  Fetching game details for %s\n", group.SteamId)
 	apiDetails, err := GetGameApiDetails(group.SteamId)
 	if err != nil {
 		return err
 	}
+	fmt.Printf("  Fetching store details for %s\n", group.SteamId)
 	storeDetails, err := GetGameStoreDetails(group.SteamId)
 	if err != nil {
 		return err
@@ -123,6 +125,7 @@ func writePost(postData PostData) error {
 	if err := tmpl.Execute(file, postData); err != nil {
 		return fmt.Errorf("could not write %s: %w", filename, err)
 	}
+	fmt.Printf("  Wrote %s\n", filename)
 	return nil
 }
 

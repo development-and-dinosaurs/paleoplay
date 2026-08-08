@@ -35,6 +35,10 @@ var (
 	nextRequestAt time.Time
 )
 
+// httpClient carries a timeout because the default client waits forever, so a
+// single stalled connection would hang the whole run with no output.
+var httpClient = &http.Client{Timeout: 2 * time.Minute}
+
 // waitForTurn spaces requests out across every worker and honours any cooldown
 // a 429 has imposed.
 func waitForTurn() {
@@ -64,7 +68,7 @@ func pauseAll(d time.Duration) {
 func getPaced(url string) (*http.Response, error) {
 	for attempt := 1; ; attempt++ {
 		waitForTurn()
-		resp, err := http.Get(url)
+		resp, err := httpClient.Get(url)
 		if err != nil {
 			return nil, fmt.Errorf("could not get %s: %w", url, err)
 		}
@@ -117,7 +121,7 @@ var appListResponse AppListResponse = AppListResponse{}
 
 func GetSteamId(game string) (steamId string) {
 	if len(appListResponse.AppList.Apps) == 0 {
-		resp, err := http.Get("http://api.steampowered.com/ISteamApps/GetAppList/v0002/?format=json")
+		resp, err := httpClient.Get("http://api.steampowered.com/ISteamApps/GetAppList/v0002/?format=json")
 		if err != nil {
 			log.Fatalf("could not get app API details: %v", err)
 		}
