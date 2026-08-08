@@ -76,14 +76,51 @@ func PullPublicScreenshots(user string) (screenshots []Screenshot) {
 	return
 }
 
-const maxNavAttempts = 4
+const (
+	maxNavAttempts = 4
+	// Steam sends no Retry-After, and a tripped limit was measured lasting
+	// around 105 seconds, so the cooldown is set comfortably beyond that.
+	// Requests made while limited appear to extend it, which is why the whole
+	// pipeline pauses rather than each worker retrying on its own schedule.
+	rateLimitCooldown = 2 * time.Minute
+	minNavInterval    = 1500 * time.Millisecond
+)
 
-// Steam rate limits when pages are pulled in parallel. Goto only returns an
-// error for network failures, so the status has to be checked by hand or a 429
-// looks like a successful navigation and every locator on the page times out.
+var (
+	navMu     sync.Mutex
+	nextNavAt time.Time
+)
+
+// waitForTurn spaces navigations out across every worker and honours any
+// cooldown a 429 has imposed.
+func waitForTurn() {
+	navMu.Lock()
+	wait := time.Until(nextNavAt)
+	if wait < 0 {
+		wait = 0
+	}
+	nextNavAt = time.Now().Add(wait + minNavInterval)
+	navMu.Unlock()
+	if wait > 0 {
+		time.Sleep(wait)
+	}
+}
+
+// pauseAll pushes the next allowed navigation out for every worker at once.
+func pauseAll(d time.Duration) {
+	navMu.Lock()
+	defer navMu.Unlock()
+	if until := time.Now().Add(d); until.After(nextNavAt) {
+		nextNavAt = until
+	}
+}
+
+// Steam rate limits when pages are pulled quickly. Goto only returns an error
+// for network failures, so the status has to be checked by hand or a 429 looks
+// like a successful navigation and every locator on the page times out.
 func gotoWithRetry(page playwright.Page, url string) error {
-	backoff := time.Second
 	for attempt := 1; ; attempt++ {
+		waitForTurn()
 		response, err := page.Goto(url)
 		if err != nil {
 			return fmt.Errorf("could not goto %s: %w", url, err)
@@ -95,9 +132,9 @@ func gotoWithRetry(page playwright.Page, url string) error {
 		if attempt == maxNavAttempts || !(status == 429 || status >= 500) {
 			return fmt.Errorf("got status %d for %s", status, url)
 		}
-		fmt.Printf("Got status %d for %s, retrying in %s\n", status, url, backoff)
-		time.Sleep(backoff)
-		backoff *= 2
+		fmt.Printf("Got status %d for %s, pausing all requests for %s (attempt %d/%d)\n",
+			status, url, rateLimitCooldown, attempt, maxNavAttempts)
+		pauseAll(rateLimitCooldown)
 	}
 }
 
@@ -106,33 +143,42 @@ func getScreenshotsToProcess(user string) (screenshotUrls []string) {
 	if err != nil {
 		log.Fatalf("could not create page: %v", err)
 	}
+	defer page.Close()
 	url := fmt.Sprintf("https://steamcommunity.com/id/%s/screenshots/", user)
 	if err := gotoWithRetry(page, url); err != nil {
 		log.Fatalf("could not goto: %v", err)
 	}
-	stillProcessing := true
-	for stillProcessing {
-		items, _ := page.Locator(".profile_media_item").All()
-		// Each scroll loads another page of 12, so only the newest batch is unseen.
-		toProcess := items
-		if len(items) > 12 {
-			toProcess = items[len(items)-12:]
+	// Load the whole profile before filtering. Stopping at the first
+	// already-processed screenshot assumes processed ones form an unbroken run
+	// from the newest, which stopped being true once failures became skips
+	// rather than fatal: a skipped screenshot would be stranded behind newer
+	// successes and never retried.
+	for {
+		before, _ := page.Locator(".profile_media_item").Count()
+		reachedBottom, _ := page.Locator("#EndOfInfiniteContent").Count()
+		if reachedBottom == 1 {
+			break
 		}
-		for _, item := range toProcess {
-			href, _ := item.GetAttribute("href")
-			if !slices.Contains(processedScreenshots, href) {
-				screenshotUrls = append(screenshotUrls, href)
-			} else {
-				fmt.Printf("Found %d screenshots to process in total\n", len(screenshotUrls))
-				return
-			}
-		}
-		fmt.Printf("Found %d screenshots to process, looking for more...\n", len(items))
 		page.Mouse().Wheel(0, 15000)
 		time.Sleep(time.Millisecond * 500)
-		reachedBottom, _ := page.Locator("#EndOfInfiniteContent").Count()
-		stillProcessing = reachedBottom != 1
+		after, _ := page.Locator(".profile_media_item").Count()
+		fmt.Printf("Loaded %d screenshots, looking for more...\n", after)
+		if after == before {
+			// Nothing new loaded and no end marker, so stop rather than spin.
+			break
+		}
 	}
+	items, _ := page.Locator(".profile_media_item").All()
+	for _, item := range items {
+		href, _ := item.GetAttribute("href")
+		if href == "" {
+			continue
+		}
+		if !slices.Contains(processedScreenshots, href) {
+			screenshotUrls = append(screenshotUrls, href)
+		}
+	}
+	fmt.Printf("Found %d screenshots to process in total (%d on profile)\n", len(screenshotUrls), len(items))
 	return
 }
 
